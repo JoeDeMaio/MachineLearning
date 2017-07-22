@@ -1,0 +1,163 @@
+# Prediction Assignment
+## Machine Learning 
+### Joe DeMaio
+### July 2017
+
+## Background
+```{r loadLibs, message=FALSE, warning=FALSE,echo=FALSE}
+## https://tex.stackexchange.com/questions/152488/suppress-library-comments-from-output-with-knitr
+library(knitr)
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(rattle)
+library(rpart)
+library(randomForest)
+```
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+## Loading the Data
+
+The training and test data sets for this assignment are available here:
+  
+    
+Training:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+  
+  
+Testing: 
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+```{r loadData,  message=TRUE, warning=TRUE,echo=TRUE}
+# clear out the memory
+rm(list = ls())
+# Here we create the file path and download the files:
+if(!file.exists("./data"))
+{
+    dir.create(file.path("./data"))
+}
+if(!file.exists("./data/traindat.csv"))
+{
+    trainingURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+    download.file(trainingURL, destfile = "./data/traindat.csv")
+}
+if(!file.exists("./data/testdat.csv"))
+{
+  testURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+  download.file(testURL, destfile = "./data/testdat.csv")
+}
+# Files are then loaded into R studio
+training <- read.csv("./data/traindat.csv")
+testing <- read.csv("./data/testdat.csv")
+```
+## Exploratory Data Analysis
+Loading the data we see that the training data set has 160 variables. The variables of interest for this purpose would be the ones with the most variability.   
+  
+The test for variability I chose was absolute value of the relative standard deviation.  This is the standard deviation divided by the mean.  The absolute value is taken because the mean may be negative.  Then the variables are sorted descending from highest to lowest value.  Of course, only numeric variables are of note, and the first variable, the line number, has no bearing on the result. The timestamps are also eliminated.  I also eliminate variables with near-zero variance. 
+
+```{r explore, message=FALSE, warning=FALSE}
+#Find columns without NA's
+No_NAs <-sapply(training, function(y) sum(is.na(y))==0) 
+
+# Find the numeric columns
+nums <- sapply(training, is.numeric)
+nums[1]=FALSE  # eliminate line numbers
+nums <- nums & No_NAs & !grepl("timestamp", names(training)) # Eliminate timestamps
+
+#cleaned training dataset
+training_clean <- training[,nums]
+
+#remove data where variance close to zero
+nZVar= nearZeroVar(training_clean[sapply(training_clean, is.numeric)],
+                   saveMetrics = TRUE)
+training_clean <- training_clean[,!nZVar$nzv]
+dim(training_clean)
+```
+  
+Next I make a table of the remaining variables and their variances.
+```{r highCorrelation, message=TRUE, warning=TRUE,echo=TRUE}
+varTable <-sapply(training_clean, function(y) var(y)) 
+varDf <- as.data.frame(varTable)
+names(varDf)[1] <- "variance"
+varDf <- mutate(varDf, variable = rownames(varDf))
+varDf <- arrange(varDf, desc(variance))
+varDf <- varDf[,2:1]
+```
+
+
+Next I plot histograms of the variables with the highest(magnet_forearm_y) and lowest(x=gyros_belt_y) variances.
+```{r histograms, warning=FALSE }
+names(varDf)[1] <- "varName"
+varDf[varDf$variance== max(varDf$variance),] 
+varDf[varDf$variance== min(varDf$variance),] 
+training_clean <- mutate(training_clean, classe = training$classe)
+g <- ggplot(data=training_clean, aes(x=magnet_forearm_y, fill=classe))
+g <- g + geom_histogram()
+g
+g <- ggplot(data=training_clean, aes(x=gyros_belt_y, fill=classe))
+g <- g + geom_histogram()
+g
+##https://stackoverflow.com/questions/20794284/means-and-sd-for-columns-in-a-dataframe-with-na-values
+
+##http://kbroman.org/knitr_knutshell/pages/figs_tables.html
+
+```
+These histograms indicate that there is enough sample variability in all the remaining variables.
+
+## Prepare the Dataset
+The first thing in preparing the dataset is to remove the variables with high correlation.  Variabeles with high correlation are redundant and lead to excess processing. I use 0.5 as a cutoff. I will eleminate any variable with a correlation value of greater than 0.5.
+```{r exHighCOr }
+corMatrix <- cor(training_clean[,1:53])  # Make a correlation matrix
+highCorr <- findCorrelation(corMatrix, cutoff=0.5)  # find the high correlations
+training_clean <- training_clean[,-highCorr] #remove variables with high correlation.
+```
+This leaves 23 variables.
+   
+   
+Next I divide the training data into training and validation.  I use 80% for trauing and 30% for validation.
+```{r setup, message=FALSE, warning=FALSE}
+set.seed(4567)
+inTrain <- createDataPartition(y=training_clean$classe, p=0.7, list = FALSE)
+myTraining <- training_clean[inTrain,]
+myValidation <- training_clean[-inTrain,]
+```
+## Decision Tree
+The first method I tired is the decision tree:
+```{r decisionTree, message=FALSE, warning=FALSE}
+#Do the decision tree on the training portion
+set.seed(1234)
+modDTFit <- rpart(classe ~ ., data=myTraining, method="class")
+library(rattle)
+fancyRpartPlot(modDTFit, cex=.4,under.cex=2,shadow.offset=0)
+prediction <- predict(modDTFit, newdata = myValidation, type = "class")
+confusionMatrix(prediction,myValidation$classe)
+
+```
+The Decision Tree gives about an 84% accuracy prediction rate.
+
+## Random Forrest
+The second method I tried was Random Forest.  New training and validation test sets were produced.
+```{r randomForest}
+set.seed(6789)
+inTrain <- createDataPartition(y=training_clean$classe, p=0.7, list = FALSE)
+myTraining <- training_clean[inTrain,]
+myValidation <- training_clean[-inTrain,]
+
+modRF <- randomForest(classe ~., data=myTraining, type="class")
+predictRF <- predict(modRF, newdata = myValidation)
+confusionMatrix(predictRF, myValidation$classe)
+```
+The Random Forest method gives about an 99.5% accuracy prediction rate. Since Random Forest gives such a near perfect accuracy, I will use Random Forest to predict the test data set.
+
+## Final Prediction
+Here I develop the prediction using the entire trianing set.  
+```{r finalPrediction }
+#do random forest on entire training set
+modRF_All <- randomForest(classe ~., data=training_clean, type="class")
+predictFinal <- predict(modRF_All, newdata = training_clean)
+
+# Prepare test set
+ftrsUsed <- names(training_clean)[1:22]  # use only those columns in the training data set
+test_used <- testing[,ftrsUsed]
+predFinal <- predict(modRF_All, newdata = test_used, type="class")
+```
