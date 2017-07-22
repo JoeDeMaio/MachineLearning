@@ -5,7 +5,7 @@ Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible t
 
 
 ## Project Purpose
-The goal of your project is to predict the manner in which the exercise was done. This is the "classe" variable 
+The goal of this project is to predict the manner in which the exercise was done. This is the "classe" variable 
 in the training set. I may use any of the other variables to predict with. I created a report describing how 
 I built your model, how I used cross validation, what I think the expected out of sample error is, and why I made 
 the choices I did. I used your prediction model to predict 20 different test cases.
